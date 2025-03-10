@@ -1,0 +1,4 @@
+Todo:
+- Make it so you can play against the model
+- Clean up notebook
+- Finish blog post

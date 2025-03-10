@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tictactransformer"
+authors = [
+    {name = "Spencer Mullinix", email = "spencermullinix@gmail.com"}
+]
+description = "Tic Tac Transformer"
+version = "0.0.1"
+readme = "README.md"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+exclude = ["data*", "references*"]  # Exclude unwanted directories
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tool.ruff]
+# Set the maximum line length to 79.
+line-length = 120
+
+[tool.ruff.lint]
+# Add the `line-too-long` rule to the enforced rule set.
+extend-select = ["E501"]
+
+# Link below shows documentation style to follow
+# https://sphinxcontrib-napoleon.readthedocs.io/en/latest/example_google.html
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "single"
+indent-style = "tab"
+docstring-code-format = true

@@ -1,0 +1,6 @@
+vocab_size = 3,
+                       num_embedding = 128,
+                       num_heads = 8,
+                       num_blocks = 4,
+                       block_size = 9,
+                       dropout = 0.1

@@ -1,1 +1,6 @@
+ruff # Linter and Formatter
+setuptools
+
 torch
+tqdm
+matplotlib
