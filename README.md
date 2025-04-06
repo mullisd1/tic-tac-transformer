@@ -1,8 +1,6 @@
 # tic-tac-transformer
 
-### Project Proposal
-
-The goal of this article is to implement a transformer decoder on a toy problem so that I could gain a better understanding of decoders and hopefully you can too. I chose tic-tac-toe as the toy problem for a few reason. The prime reason being it is not the standard application of transformers, and I wanted to see if the transformer that I implemented could learn the strategy.
+The goal of this article is to implement a transformer decoder on a toy problem  to gain a better understanding of decoders. Tic-Tac-Toe was chosen as the toy problem mainly due to it not being NLP (Natural Language Processing). 
 
 In order to complete this tasks there are a few things we need to do.
 
@@ -15,10 +13,14 @@ If you want to skip the article and read the code yourself, here is the [github 
 
 ## Tic Tac Toe Game
 
-The first thing we need to do is to implement the tic-tac-toe game. This is a relatively simple affair with only a little bit of numpy. The repo for the game is [here](https://github.com/mullisd1/tic-tac-toe). The repo consists of 1 class that holds the boards state as well as some test to make sure the game works as intended. The repo also allows for game boards of greater than 3x3 in size if you wanted to try to extend the work that I did here to larger boards.
+The first thing we need to do is to implement the tic-tac-toe game. This is a relatively simple affair with only a little bit of numpy. The repo for the game is [here](https://github.com/mullisd1/tic-tac-toe). The repo consists of 1 class that holds the boards state as well as some test to make sure the game works as intended. The repo also allows for game boards of greater than 3x3 in size. If you wanted to try to extend the work that I did here to larger boards feel free.
 
 ## Data
 Now that the game is implemented, we have to define the problem space. This just means we have to define what our model inputs and outputs will be. In this case we have a 3x3 matrix where each position holds either a -1, 0, 1 (-1 = X, 0 = empty, 1 = O). In order to make this something the model understands we will transform this 3x3 matrix into a 1x9 matrix
+
+<div style="text-align:center"><img src="./references/data/diagram_flatten.jpg" /></div>
+
+very simple with numpy
 
 ``` python
 >>> arr
@@ -29,39 +31,43 @@ array([[1, 2, 3],
 array([1, 2, 3, 4, 5, 6, 7, 8, 9])
 ```
 
-The current board state will serve as the model input, and the optimal next board state will serve as the model output. In order to find the optimal next board state we will use the Min Max algorithm
+The current board state will serve as the model input, and the optimal next board state will serve as the model output, as seen in the picture below.
+
+<div style="text-align:center"><img src="./references/data/diagram_flow.jpg" /></div>
 
 ### Min Max Algorithm
 
-A Minimax tree for Tic-Tac-Toe represents all possible game states, where each node is a board configuration. The tree alternates between maximizing (AI’s turn) and minimizing (opponent’s turn) players. The AI assigns scores to terminal nodes (win = 1, loss = -1, draw = 0) and propagates these values upward, assuming the opponent plays optimally. At each decision point, the AI selects the move leading to the best possible outcome. This ensures the AI plays optimally, making it either win or force a draw in an ideal game. If you would like a better more in depth explanation you can find one [here](https://philippmuens.com/minimax-and-mcts). 
+A Minimax tree for Tic-Tac-Toe is a method of finding the best move assuming that the opponent is also trying to make their best move. The tree alternates between layers maximizing maximizing nodes and minimizing nodes. The AI assigns scores to terminal nodes (win = 1, loss = -1, draw = 0) and propagates these values upward. At each decision point, the algorithm selects the move leading to the best possible outcome. Training on this data ensures that our transformer will play optimally, making it either win or force a draw in an ideal game. If you would like a better more in depth explanation you can find one [here](https://philippmuens.com/minimax-and-mcts). 
 
 Below is an example of how a min max tree works alternating between minimizing each layer (represents our opponents turn) and maximizing each layer (represents our turn)
 
-<div style="text-align:center"><img src="https://philippmuens.com/assets/blog/minimax-and-mcts/chess-minimax-6.png" /></div>
+<div style="text-align:center"><img src="./references/imgs/ex_min_max.webp" /></div>
 
 This does come with one complication. In Tic-Tac-Toe there are often multiple moves that hold the same value. To deal with this we simply take the move that wins the quickest.
 
-## Model Architechture
+## Model Architecture
 
 Below is the transformer model architecture from the now famous ["Attention Is All You Need"](https://arxiv.org/pdf/1706.03762) paper. For the purpose of this article, we will be focusing on the right block of the graph which is known as the Decoder block. The left block is what is known as the Encoder block.
 
-In order to explain the architecture we will use a toy problem to explain the basic control flow.
-
-***Come Back and insert basic control flow example***
+A simple example of how the below architecture would work is a simple question answer model. A paragraph would be fed into the encoder, a question would be fed into the decoder, and the decoder output would be the answer to that question. 
 
 <div style="text-align:center"><img src="./references/imgs/all_you_need_is_attention_full.png" /></div>
 
-Now that we have a basic understanding of what the figure means we can explain the control flow of how our tic-tac-toe solver will work. Below I have added an image of what our decoder architecture will more closely resemble.
+In our toy problem of tic-tac-toe we are not providing any outside context. This means that we will not need the encoder on the left nor the cross attention layer. This leaves us with the model shown below.
 
 <div style="text-align:center"><img src="./references/imgs/all_you_need_is_attention_decoder_block_no_cross.png" /></div>
 
-### Multihead Attention
+### Model layers explained
+
+Now I am going to explain each layer of the model, if you aren't interested you can skip straight to the training.
+
+#### Multihead Attention
 
 <div style="text-align:center"><img src="./references/imgs/all_you_need_is_attention_multihead_attention.png" /></div>
 
-The Masked Multi-Head Attention block consists of multiple attention heads stacked together. An attention head computes an attention score for each input. This is done by using ***query, key, and value*** layers. The queries and keys calculate the attention weights via a dot product. This is then scaled by square root of the dimension size. This is so the softmax function does not behave oddly when there is high dimensionality (less important for our use case). The weights are then applied to the value matrix, producing a weighted sum that highlights the relevant information.
+The Masked Multi-Head Attention block consists of multiple attention heads stacked together. An attention head computes an attention score for each input. This is done by using ***query, key, and value*** layers. The queries and keys calculate the attention weights via a dot product. This is then scaled by square root of the dimension size. The scaling is done so the softmax function does not behave oddly when there is high dimensionality (less important for our use case). The weights are then applied to the value matrix, producing a weighted sum that highlights the relevant information.
 
-Below the Multi-Head Attention block is also implemented. This is simply multiple attention heads running in parallel to extract different relationships from the data.
+Below the Multi-Head Attention block is implemented. This is simply multiple attention heads running in parallel to extract different relationships from the data.
 
 Dropout is included in the code below. Dropout is a simple process that while training the model will randomly turn off a percentage of the neurons. This allows for the model to generalize better during inference. For a better explanation look [here](https://towardsdatascience.com/dropout-in-neural-networks-47a162d621d9/)
 
@@ -131,7 +137,7 @@ class FeedForward(nn.Module):
 
         self.m = nn.Sequential(nn.Linear(num_embedding, 4 * num_embedding), # 4* because they did it in the paper
                                nn.ReLU(),
-                               nn.Linear(4 * num_embedding, num_embedding), # Projection layer for getting back into the residual pathway
+                               nn.Linear(4 * num_embedding, num_embedding),
                                nn.Dropout(dropout)
         )
     
@@ -149,7 +155,7 @@ You can find better explanations for why we use [layer norm here](https://medium
 
 ```python
 class Block(nn.Module):
-    """"""
+    """Transformer Block"""
 
     def __init__(self, num_embedding, num_heads, dropout):
         super().__init__()
@@ -172,10 +178,10 @@ class Block(nn.Module):
 Now that we can build the model, we need to be able to train it. You will notice that I added somethings that are not strictly necessary but are nice to haves.
 
 - Early Stopping:
-    - stops training before the max number of epochs is reached because the validation loss has not gone down in x# of epochs
+    - stops training before the max number of epochs is reached because the validation loss has not gone down in 100 epochs (can be any number)
     - stops the model training when it begins to overfit
 - LR Scheduler:
-    - reduces the learning rate if the validation loss has not gone down in x# of epochs
+    - reduces the learning rate if the validation loss has not gone down in 30 epochs (can be any number)
     - allows for the use of a larger learning rate in the beginning so the model learns faster
 
 ```python
@@ -184,8 +190,8 @@ class ModelTrainer:
                  train_dataloader,
                  val_dataloader, 
                  lr=1e-3,
-                 epochs = 100,
-                 early_stopping = 100,
+                 epochs = 1000,
+                 early_stopping = 20,
                  device = None):
         self.verbose = False
 
@@ -304,11 +310,11 @@ dropout = 0.0
 <div style="text-align:center"><img src="./references/models/exp1/losses.png" /></div>
 
 **Test Results**: 84.459% accuracy
-**Analysis**:
+**Analysis**: This model was able to learn to maintain the board position and only change 1 value. This model often still loses but it is clear that it was able to learn the rules of the game.
 
 ### Experiment 2: Add Dropout
 
-**Hypotosis**: Dropout will help with the learning
+**Hypothesis**: Dropout will help with the learning
 **Config**:
 ```
 num_embedding = 32,
@@ -320,11 +326,11 @@ dropout = 0.1
 <div style="text-align:center"><img src="./references/models/exp2/losses.png" /></div>
 
 **Test Results**: 92.229% accuracy
-**Analysis**:
+**Analysis**: Just by adding dropout to the training we were able to learn quite a bit more. This model also ran for 2.5x more epochs than the previous as it was able to continue learning.
 
 ### Experiment 3: Make the model wider
 
-**Hypotosis**: Adding more heads will allow the model to learn better
+**Hypothesis**: Adding more heads will allow the model to learn better
 **Config**:
 ```
 num_embedding = 32,
@@ -336,11 +342,11 @@ dropout = 0.1
 <div style="text-align:center"><img src="./references/models/exp3/losses.png" /></div>
 
 **Test Results**: 94.932% accuracy
-**Analysis**:
+**Analysis**: The model does perform slightly better but still not as well as I hoped for.
 
 ### Experiment 4: Make the model wider
 
-**Hypotosis**: Adding more heads will allow the model to learn better
+**Hypothesis**: Adding more heads will allow the model to learn better
 **Config**:
 ```
 num_embedding = 128,
@@ -352,6 +358,7 @@ dropout = 0.1
 <div style="text-align:center"><img src="./references/models/exp4/losses.png" /></div>
 
 **Test Results**: 96.621% accuracy
-**Analysis**:
+**Analysis**: I played this model in a few games. It always plays legal moves with good strategy. I believe the 3.4% test error is due to there often being more than 1 move in Tic-Tac-Toe that will lead to a win.
 
 ## Conclusion:
+In conclusion, a basic transformer without too many parameters can learn to play Tic-Tac-Toe decently well. If you want to play with this yourself, here is the link to my [COLAB Notebook](https://colab.research.google.com/drive/1FwYLa2WgWvTyCNczd5RJWR3N22K9sYdD?usp=sharing)
