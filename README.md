@@ -690,4 +690,4 @@ dropout = 0.1
 **Analysis**: Adding more parameters improved the model greatly
 
 ## Conclusion:
-In conclusion, a basic transformer without too many parameters can learn to play Tic-Tac-Toe decently well. If you want to play with this yourself, here is the link to my [COLAB Notebook](https://colab.research.google.com/drive/1FwYLa2WgWvTyCNczd5RJWR3N22K9sYdD?usp=sharing)
+A basic transformer can learn to play Tic-Tac-Toe decently well. If you want to play with this yourself, here is the link to my [COLAB Notebook](https://colab.research.google.com/drive/1FwYLa2WgWvTyCNczd5RJWR3N22K9sYdD?usp=sharing)
