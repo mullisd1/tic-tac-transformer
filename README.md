@@ -47,7 +47,7 @@ This does come with one complication. In Tic-Tac-Toe there are often multiple mo
 
 ## Model Architecture
 
-Below is the transformer model architecture from the now famous ["Attention Is All You Need"](https://arxiv.org/pdf/1706.03762) paper. For the purpose of this article, we will be focusing on the right block of the graph which is known as the Decoder block. The left block is what is known as the Encoder block.
+Below is the transformer model architecture from the now famous ["Attention Is All You Need"](https://arxiv.org/pdf/1706.03762) paper. We will start by focusing on the right block of the graph which is known as the Decoder block. The left block is what is known as the Encoder block.
 
 A simple example of how the below architecture would work is a simple question answer model. A paragraph would be fed into the encoder, a question would be fed into the decoder, and the decoder output would be the answer to that question. 
 
@@ -359,6 +359,335 @@ dropout = 0.1
 
 **Test Results**: 96.621% accuracy
 **Analysis**: I played this model in a few games. It always plays legal moves with good strategy. I believe the 3.4% test error is due to there often being more than 1 move in Tic-Tac-Toe that will lead to a win.
+
+
+## Model Architecture Part 2
+
+Now we will add the encoder and cross attention blocks back into the model. This toy problem does not lend itself well to the encoder-decoder architecture, but I am going to force it anyway.
+
+The new control flow of the model is described below. The input to the encoder will be all possible next moves. Ideally this will mean we need less parameters and will train faster.
+
+<div style="text-align:center"><img src="./references/data/diagram_flow_with_encoder.jpg" /></div>
+
+Below are the main code changes necessary to add the cross attention. Essentially the output of the encoder becomes the key and the value for the for the cross attention. The output of the masked multi-head attention then becomes the query value.
+
+``` python
+class Head(nn.Module):
+    """ Singular Head"""
+    def __init__(self,
+                 num_embedding,
+                 head_size,
+                 dropout
+                 ):
+        super().__init__()
+        self.key = nn.Linear(num_embedding, head_size, bias=False)
+        self.query = nn.Linear(num_embedding, head_size, bias=False)
+        self.value = nn.Linear(num_embedding, head_size, bias=False)
+
+        self.dropout = nn.Dropout(dropout)
+    
+    def forward(self, x, x_k = None, x_v = None):
+        # (CHANGES HERE)
+        x_q = x
+        x_k = x_k if x_k is not None else x
+        x_v = x_v if x_v is not None else x
+        
+        B,T,C = x_q.shape
+
+        k = self.key(x_k) # (B,T,C)
+        q = self.query(x_q) # (B,T,C)
+
+        # Computer attention
+        # C**0.5 is to make the numbers smaller so softmax doesn't do weird things
+        wei = q @ k.transpose(-2, -1) / C**0.5 # (B, T, C) @ (B, C, T) -> (B, T, T)
+        wei = F.softmax(wei, dim=-1)
+        wei = self.dropout(wei)
+
+        V = self.value(x_v)
+        out = wei @ V # (B, T, T) @ (B, T, C) -> (B, T, C)
+        return out
+    
+class MultiHeadAttention(nn.Module):
+    """Multiple Attention Heads"""
+    def __init__(self, num_heads, num_embedding, head_size, dropout):
+        super().__init__()
+        self.heads = nn.ModuleList([Head(num_embedding, head_size, dropout) for i in range(num_heads)])
+        self.project = nn.Linear(num_embedding, num_embedding)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, enc_out = None):
+        if enc_out is None:
+            out = torch.cat([h(x) for h in self.heads], dim=-1)
+        else:
+            out = torch.cat([h(x, x_k=enc_out, x_v=enc_out) for h in self.heads], dim=-1) # (CHANGES HERE)
+        out = self.project(out)
+        out = self.dropout(out)
+        return out
+
+class EncoderBlock(nn.Module):
+    """EncoderBlock"""
+    def __init__(self, num_embedding, num_heads, dropout):
+        super().__init__()
+
+        head_size = num_embedding // num_heads
+        self.self_attn = MultiHeadAttention(num_heads, num_embedding, head_size, dropout)
+        self.feed_fwd = FeedForward(num_embedding, dropout)
+
+        self.lay_norm1 = nn.LayerNorm(num_embedding)
+        self.lay_norm2 = nn.LayerNorm(num_embedding)
+
+    def forward(self, x):
+        x = self.lay_norm1(x + self.self_attn(x))
+        x = self.lay_norm2(x + self.feed_fwd(x))
+        return x
+    
+
+class DecoderBlock(nn.Module):
+    """DecoderBlock"""
+    def __init__(self, num_embedding, num_heads, dropout):
+        super().__init__()
+
+        head_size = num_embedding // num_heads
+        self.self_attn = MultiHeadAttention(num_heads, num_embedding, head_size, dropout)
+        self.cross_attn = MultiHeadAttention(num_heads, num_embedding, head_size, dropout)
+        self.feed_fwd = FeedForward(num_embedding, dropout)
+
+        self.lay_norm1 = nn.LayerNorm(num_embedding)
+        self.lay_norm2 = nn.LayerNorm(num_embedding)
+        self.lay_norm3 = nn.LayerNorm(num_embedding)
+
+    def forward(self, x, encoder_out):
+        x = self.lay_norm1(x + self.self_attn(x))
+        x = self.lay_norm2(x + self.cross_attn(x, enc_out = encoder_out)) # CHANGE HERE
+        x = self.lay_norm3(x + self.feed_fwd(x))
+        return x
+
+
+class TicTacToeModel(nn.Module):
+    def __init__(self,
+                 vocab_size,
+                 en_block_size,
+                 de_block_size,
+                 num_embedding,
+                 num_heads,
+                 dropout,
+                ):
+        super().__init__()
+
+        # Embeddings
+        self.token_embedding_table = nn.Embedding(vocab_size,num_embedding)
+        self.en_position_embedding_table = nn.Embedding(en_block_size, num_embedding)
+        self.de_position_embedding_table = nn.Embedding(de_block_size, num_embedding)
+
+        # Encoder (CHANGES HERE)
+        self.encoder_1 = nn.Sequential(
+            EncoderBlock(num_embedding, num_heads, dropout),
+        )
+
+        # Decoder (CHANGES HERE)
+        self.encoder_2 = nn.Sequential(
+            EncoderBlock(num_embedding, num_heads, dropout),
+            # EncoderBlock(num_embedding, num_heads, dropout),
+        )
+
+        # Cross Attend (CHANGES HERE)
+        self.cross_attn = DecoderBlock(num_embedding, num_heads, dropout)
+
+        # Head (CHANGES HERE)
+        self.head = nn.Sequential(
+            # EncoderBlock(num_embedding, num_heads, dropout),
+            nn.Linear(num_embedding, vocab_size)
+        )
+
+
+    def forward(self, en_in, de_in):
+        _, en_T = en_in.shape
+        B, de_T = de_in.shape
+
+        token_embedding = self.token_embedding_table(en_in) # (B, T, C)
+        position_embedding = self.en_position_embedding_table(torch.arange(en_T)) # (T, C)
+        en_in = token_embedding + position_embedding # (B, T, C)
+
+        en1_out = self.encoder_1(en_in)
+
+        token_embedding = self.token_embedding_table(de_in) # (B, T, C)
+        position_embedding = self.de_position_embedding_table(torch.arange(de_T)) # (T, C)
+        de_in = token_embedding + position_embedding # (B, T, C)
+
+        en2_out = self.encoder_2(de_in)
+
+        x = self.cross_attn(en2_out, en1_out)
+
+        logits = self.head(x) # (B, T, vocab_size)
+   
+        return logits
+
+```
+
+## Experiments Part 2
+
+Below I will list the experiments that were performed. For all of the experiments some of the config variables will remain constant.
+
+```
+vocab_size = 3 # number of tokens (X, O, empty)
+block_size = 9 # board size
+encoder_block_size = 81 
+```
+
+### Experiment 1: Initial Run
+
+**Setup**:
+``` python
+# Encoder
+self.encoder_1 = nn.Sequential(
+    EncoderBlock(num_embedding, num_heads, dropout),
+)
+
+# Decoder
+self.encoder_2 = nn.Sequential(
+    EncoderBlock(num_embedding, num_heads, dropout),
+)
+
+# Cross Attend
+self.cross_attn = DecoderBlock(num_embedding, num_heads, dropout)
+
+# Head
+self.head = nn.Sequential(
+    EncoderBlock(num_embedding, num_heads, dropout),
+    EncoderBlock(num_embedding, num_heads, dropout),
+    EncoderBlock(num_embedding, num_heads, dropout),
+    EncoderBlock(num_embedding, num_heads, dropout),
+    nn.Linear(num_embedding, vocab_size)
+)
+```
+
+**Hypothesis**: Should see similar performance to best non cross-attention models
+**Config**:
+```
+num_embedding = 32,
+num_heads = 4,
+num_encoder_blocks = 1,
+num_encoder_blocks = 1,
+dropout = 0.1
+```
+**Loss Graph**:
+<div style="text-align:center"><img src="./references/models/exp5/losses.png" /></div>
+
+**Test Results**: 92.736% accuracy
+**Analysis**: Performed comparably to models without cross-attention
+
+### Experiment 3: Extra Context Encoding
+
+**Setup**: 
+``` python 
+# Encoder
+self.encoder_1 = nn.Sequential(
+    EncoderBlock(num_embedding, num_heads, dropout),
+    EncoderBlock(num_embedding, num_heads, dropout),
+    EncoderBlock(num_embedding, num_heads, dropout),
+    EncoderBlock(num_embedding, num_heads, dropout)
+)
+
+# Decoder
+self.encoder_2 = nn.Sequential(
+    EncoderBlock(num_embedding, num_heads, dropout),
+    EncoderBlock(num_embedding, num_heads, dropout),
+)
+
+# Cross Attend
+self.cross_attn = DecoderBlock(num_embedding, num_heads, dropout)
+
+# Head
+self.head = nn.Sequential(
+    EncoderBlock(num_embedding, num_heads, dropout),
+    nn.Linear(num_embedding, vocab_size)
+)
+```
+**Hypothesis**: The extra parameters on the context will not make much difference
+**Config**:
+```
+num_embedding = 32,
+num_heads = 4,
+dropout = 0.1
+```
+**Loss Graph**:
+<div style="text-align:center"><img src="./references/models/exp7/losses.png" /></div>
+
+**Test Results**: 92.905% accuracy
+**Analysis**: The extra parameters did not improve performance over a model without cross-attention.
+
+### Experiment 4: 1 self-attention for each
+
+**Setup**: Once self attention block for each input and 1 cross attention block
+``` python 
+# Encoder
+self.encoder_1 = nn.Sequential(
+    EncoderBlock(num_embedding, num_heads, dropout),
+)
+
+# Decoder
+self.encoder_2 = nn.Sequential(
+    EncoderBlock(num_embedding, num_heads, dropout),
+)
+
+# Cross Attend
+self.cross_attn = DecoderBlock(num_embedding, num_heads, dropout)
+
+# Head
+self.head = nn.Sequential(
+    nn.Linear(num_embedding, vocab_size)
+)
+```
+**Hypothesis**: The model will be under parameterized
+**Config**:
+```
+num_embedding = 32,
+num_heads = 4,
+num_encoder_blocks = 1,
+num_decoder_blocks = 1,
+dropout = 0.1
+```
+**Loss Graph**:
+<div style="text-align:center"><img src="./references/models/exp_21/losses.png" /></div>
+
+**Test Results**: 81.588% accuracy
+**Analysis**: There was in fact less performance
+
+### Experiment 5: Experiment 4 with more parameters
+**Setup**: Once self attention block for each input and 1 cross attention block
+``` python 
+# Encoder
+self.encoder_1 = nn.Sequential(
+    EncoderBlock(num_embedding, num_heads, dropout),
+)
+
+# Decoder
+self.encoder_2 = nn.Sequential(
+    EncoderBlock(num_embedding, num_heads, dropout),
+)
+
+# Cross Attend
+self.cross_attn = DecoderBlock(num_embedding, num_heads, dropout)
+
+# Head
+self.head = nn.Sequential(
+    nn.Linear(num_embedding, vocab_size)
+)
+```
+**Hypothesis**: The model will be improve but not be as good as deeper models
+**Config**:
+```
+num_embedding = 128,
+num_heads = 16,
+num_encoder_blocks = 1,
+num_decoder_blocks = 1,
+dropout = 0.1
+```
+**Loss Graph**:
+<div style="text-align:center"><img src="./references/models/exp8/losses.png" /></div>
+
+**Test Results**: 92.905% accuracy
+**Analysis**: Adding more parameters improved the model greatly
 
 ## Conclusion:
 In conclusion, a basic transformer without too many parameters can learn to play Tic-Tac-Toe decently well. If you want to play with this yourself, here is the link to my [COLAB Notebook](https://colab.research.google.com/drive/1FwYLa2WgWvTyCNczd5RJWR3N22K9sYdD?usp=sharing)
